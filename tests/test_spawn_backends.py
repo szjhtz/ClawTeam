@@ -114,3 +114,38 @@ def test_resolve_clawteam_executable_ignores_unrelated_argv0(monkeypatch, tmp_pa
 
     assert resolve_clawteam_executable() == str(resolved_bin)
     assert build_spawn_path("/usr/bin:/bin").startswith(f"{resolved_bin.parent}:")
+
+
+def test_resolve_clawteam_executable_ignores_relative_argv0_even_if_local_file_exists(
+    monkeypatch, tmp_path
+):
+    local_shadow = tmp_path / "clawteam"
+    local_shadow.write_text("#!/bin/sh\n")
+    resolved_bin = tmp_path / "venv" / "bin" / "clawteam"
+    resolved_bin.parent.mkdir(parents=True)
+    resolved_bin.write_text("#!/bin/sh\n")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["clawteam"])
+    monkeypatch.setattr("clawteam.spawn.cli_env.shutil.which", lambda name: str(resolved_bin))
+
+    assert resolve_clawteam_executable() == str(resolved_bin)
+    assert build_spawn_path("/usr/bin:/bin").startswith(f"{resolved_bin.parent}:")
+
+
+def test_resolve_clawteam_executable_accepts_relative_path_with_explicit_directory(
+    monkeypatch, tmp_path
+):
+    relative_bin = tmp_path / ".venv" / "bin" / "clawteam"
+    relative_bin.parent.mkdir(parents=True)
+    relative_bin.write_text("#!/bin/sh\n")
+    fallback_bin = tmp_path / "fallback" / "clawteam"
+    fallback_bin.parent.mkdir(parents=True)
+    fallback_bin.write_text("#!/bin/sh\n")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["./.venv/bin/clawteam"])
+    monkeypatch.setattr("clawteam.spawn.cli_env.shutil.which", lambda name: str(fallback_bin))
+
+    assert resolve_clawteam_executable() == str(relative_bin.resolve())
+    assert build_spawn_path("/usr/bin:/bin").startswith(f"{relative_bin.parent.resolve()}:")

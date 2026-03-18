@@ -26,7 +26,8 @@ def resolve_clawteam_executable() -> str:
     argv0 = (sys.argv[0] or "").strip()
     if argv0 and _looks_like_clawteam_entrypoint(argv0):
         candidate = Path(argv0).expanduser()
-        if candidate.is_file():
+        has_explicit_dir = candidate.parent != Path(".")
+        if (candidate.is_absolute() or has_explicit_dir) and candidate.is_file():
             return str(candidate.resolve())
 
     resolved = shutil.which("clawteam")
