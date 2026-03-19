@@ -88,6 +88,49 @@ class TestLoadBuiltinTemplate:
             if task.owner:
                 assert task.owner in agent_names, f"Task owner '{task.owner}' not in agents"
 
+    def test_load_strategy_room(self):
+        tmpl = load_template("strategy-room")
+        assert tmpl.name == "strategy-room"
+        assert tmpl.leader.name == "strategy-lead"
+        assert len(tmpl.agents) == 4
+        assert len(tmpl.tasks) == 5
+
+    def test_strategy_room_agent_names(self):
+        tmpl = load_template("strategy-room")
+        names = {agent.name for agent in tmpl.agents}
+        assert names == {
+            "systems-analyst",
+            "delivery-planner",
+            "risk-mapper",
+            "decision-editor",
+        }
+
+    def test_strategy_room_task_owners_match_agents(self):
+        tmpl = load_template("strategy-room")
+        agent_names = {tmpl.leader.name} | {a.name for a in tmpl.agents}
+        for task in tmpl.tasks:
+            if task.owner:
+                assert task.owner in agent_names, f"Task owner '{task.owner}' not in agents"
+
+    def test_strategy_room_specialists_route_to_decision_editor(self):
+        tmpl = load_template("strategy-room")
+        for agent in tmpl.agents:
+            if agent.name == "decision-editor":
+                continue
+            assert "decision-editor" in agent.task
+            assert "strategy-lead" not in agent.task
+
+    def test_strategy_room_decision_editor_routes_to_strategy_lead(self):
+        tmpl = load_template("strategy-room")
+        decision_editor = next(agent for agent in tmpl.agents if agent.name == "decision-editor")
+        assert "strategy-lead" in decision_editor.task
+        assert "Do not recommend the final path yourself" in decision_editor.task
+
+    def test_strategy_room_leader_waits_for_decision_editor_memo(self):
+        tmpl = load_template("strategy-room")
+        assert "Wait for the decision-editor's strategy memo" in tmpl.leader.task
+        assert "supporting specialist outputs" not in tmpl.leader.task
+
 
 class TestLoadTemplateNotFound:
     def test_missing_template_raises(self):
@@ -128,6 +171,7 @@ class TestListTemplates:
         templates = list_templates()
         names = {t["name"] for t in templates}
         assert "hedge-fund" in names
+        assert "strategy-room" in names
 
     def test_list_entry_format(self):
         templates = list_templates()
