@@ -28,6 +28,7 @@ class BoardCollector:
             total_inbox += mailbox.peek_count(inbox_name)
             if member.agent_id == config.lead_agent_id:
                 leader_name = member.name
+                break
 
         tasks_total = len(store.list_tasks())
         return {

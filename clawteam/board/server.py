@@ -88,7 +88,7 @@ class BoardHandler(BaseHTTPRequestHandler):
 
     def _serve_team(self, team_name: str):
         try:
-            data = self.team_cache.get(team_name, lambda: self.collector.collect_team(team_name))
+            data = self.collector.collect_team(team_name)
             self._serve_json(data)
         except ValueError as e:
             body = json.dumps({"error": str(e)}).encode("utf-8")

@@ -144,20 +144,24 @@ def test_collect_overview_preserves_broken_team_fallback(monkeypatch):
     ]
 
 
-def test_serve_team_uses_shared_team_snapshot_cache(monkeypatch):
+def test_serve_team_reads_fresh_snapshot_without_cache(monkeypatch):
     calls = {"count": 0}
     served = {}
 
     class FakeCache:
         def get(self, team_name, loader):
-            calls["count"] += 1
-            return loader()
+            raise AssertionError("team cache should not be used for /api/team")
 
     handler = object.__new__(BoardHandler)
     handler.collector = type(
         "Collector",
         (),
-        {"collect_team": staticmethod(lambda team_name: {"team": {"name": team_name}})},
+        {
+            "collect_team": staticmethod(
+                lambda team_name: calls.__setitem__("count", calls["count"] + 1)
+                or {"team": {"name": team_name}}
+            )
+        },
     )()
     handler.team_cache = FakeCache()
     handler._serve_json = lambda data: served.setdefault("data", data)
