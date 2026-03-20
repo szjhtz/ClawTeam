@@ -26,9 +26,8 @@ class BoardCollector:
         for member in config.members:
             inbox_name = f"{member.user}_{member.name}" if member.user else member.name
             total_inbox += mailbox.peek_count(inbox_name)
-            if member.agent_id == config.lead_agent_id:
+            if not leader_name and member.agent_id == config.lead_agent_id:
                 leader_name = member.name
-                break
 
         tasks_total = len(store.list_tasks())
         return {

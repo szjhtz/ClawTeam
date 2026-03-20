@@ -5,6 +5,7 @@ from pathlib import Path
 
 from clawteam.board.collector import BoardCollector
 from clawteam.board.server import BoardHandler
+from clawteam.team.mailbox import MailboxManager
 from clawteam.team.manager import TeamManager
 
 
@@ -32,6 +33,36 @@ def test_collect_overview_does_not_call_collect_team(monkeypatch, tmp_path: Path
             "members": 1,
             "tasks": 0,
             "pendingMessages": 0,
+        }
+    ]
+
+
+def test_collect_overview_sums_inbox_counts_for_all_members(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
+    TeamManager.create_team(
+        name="demo",
+        leader_name="leader",
+        leader_id="leader001",
+        description="demo team",
+    )
+    TeamManager.add_member("demo", "worker", "worker001")
+    MailboxManager("demo").send(from_agent="leader", to="worker", content="hello")
+
+    def fail_collect_team(self, team_name: str):
+        raise AssertionError("collect_team should not be called for overview")
+
+    monkeypatch.setattr(BoardCollector, "collect_team", fail_collect_team)
+
+    teams = BoardCollector().collect_overview()
+
+    assert teams == [
+        {
+            "name": "demo",
+            "description": "demo team",
+            "leader": "leader",
+            "members": 2,
+            "tasks": 0,
+            "pendingMessages": 1,
         }
     ]
 
