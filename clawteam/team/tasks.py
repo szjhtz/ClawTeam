@@ -18,6 +18,10 @@ class TaskLockError(Exception):
     """Raised when a task is locked by another agent."""
 
 
+class TaskCycleError(Exception):
+    """Raised when a task cycle is detected."""
+
+
 def _tasks_root(team_name: str) -> Path:
     d = get_data_dir() / "tasks" / team_name
     d.mkdir(parents=True, exist_ok=True)
@@ -80,6 +84,20 @@ class TaskStore:
         if task.blocked_by:
             task.status = TaskStatus.blocked
         with self._write_lock():
+            # Validate dependencies exist
+            for dep_id in (blocked_by or []):
+                if not self._get_unlocked(dep_id):
+                    raise ValueError(f"Task '{dep_id}' does not exist")
+
+            # Validate blocks references exist
+            for dep_id in (blocks or []):
+                if not self._get_unlocked(dep_id):
+                    raise ValueError(f"Task '{dep_id}' does not exist")
+
+            # Check for cycles
+            if self._would_create_cycle(task.id, blocked_by or []):
+                raise TaskCycleError("Creating this dependency would cause a cycle")
+
             self._save_unlocked(task)
         return task
 
@@ -147,10 +165,28 @@ class TaskStore:
             if priority is not None:
                 task.priority = priority
             if add_blocks:
+                # Validate referenced tasks exist
+                for dep_id in add_blocks:
+                    if not self._get_unlocked(dep_id):
+                        raise ValueError(f"Task '{dep_id}' does not exist")
                 for b in add_blocks:
                     if b not in task.blocks:
                         task.blocks.append(b)
             if add_blocked_by:
+                # Validate referenced tasks exist
+                for dep_id in add_blocked_by:
+                    if not self._get_unlocked(dep_id):
+                        raise ValueError(f"Task '{dep_id}' does not exist")
+
+                # Check for self-reference
+                if task_id in add_blocked_by:
+                    raise ValueError("Task cannot block itself")
+
+                # Check for cycles
+                new_blocked_by = task.blocked_by + add_blocked_by
+                if self._would_create_cycle(task_id, new_blocked_by):
+                    raise TaskCycleError("Adding dependency would create a cycle")
+
                 proposed_blocked_by = list(task.blocked_by)
                 for b in add_blocked_by:
                     if b not in proposed_blocked_by:
@@ -337,3 +373,142 @@ class TaskStore:
                     self._save_unlocked(task)
             except Exception:
                 continue
+
+    def has_cycles(self) -> bool:
+        """Check if task dependency graph has cycles using Kahn's algorithm.
+
+        Returns True if the graph contains cycles, False otherwise.
+        """
+        return len(self.detect_cycles()) > 0
+
+    def detect_cycles(self) -> list[list[str]]:
+        """Find all cycles in the task dependency graph.
+
+        Returns a list of cycles, where each cycle is a list of task IDs
+        forming a circular dependency (e.g., [['a', 'b', 'a']]).
+        Uses DFS-based cycle detection.
+        """
+        tasks = self._list_tasks_unlocked()
+        if not tasks:
+            return []
+
+        # Build adjacency list: task -> tasks it blocks
+        # blocked_by means: this task is blocked by others
+        # So we have an edge: blocker -> blocked
+        graph: dict[str, set[str]] = {t.id: set() for t in tasks}
+        in_degree: dict[str, int] = {t.id: 0 for t in tasks}
+
+        for task in tasks:
+            for blocked_by_id in task.blocked_by:
+                if blocked_by_id in graph:
+                    # Edge from blocked_by_id -> task.id
+                    graph[blocked_by_id].add(task.id)
+                    in_degree[task.id] = in_degree.get(task.id, 0) + 1
+
+        # Kahn's algorithm to detect cycles
+        # Nodes with no incoming edges
+        queue = [node for node in in_degree if in_degree[node] == 0]
+        visited_count = 0
+
+        while queue:
+            node = queue.pop(0)
+            visited_count += 1
+            for neighbor in graph[node]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        # If not all nodes were visited, there are cycles
+        if visited_count < len(graph):
+            # Find nodes involved in cycles using DFS
+            cycles = []
+            visited: set[str] = set()
+            path: list[str] = []
+
+            def dfs(node: str) -> None:
+                if node in path:
+                    # Found a cycle
+                    cycle_start = path.index(node)
+                    cycle = path[cycle_start:] + [node]
+                    cycles.append(cycle)
+                    return
+                if node in visited:
+                    return
+
+                visited.add(node)
+                path.append(node)
+
+                for neighbor in graph.get(node, []):
+                    dfs(neighbor)
+
+                path.pop()
+
+            for task in tasks:
+                if task.id not in visited:
+                    dfs(task.id)
+
+            return cycles
+
+        return []
+
+    def _would_create_cycle(self, task_id: str, new_blocked_by: list[str]) -> bool:
+        """Check if adding blocked_by dependencies would create a cycle.
+
+        Args:
+            task_id: The task that would be blocked
+            new_blocked_by: List of task IDs that would block this task
+
+        Returns:
+            True if adding these dependencies would create a cycle
+        """
+        if not new_blocked_by:
+            return False
+
+        # Check if any of the blocking tasks is the task itself
+        if task_id in new_blocked_by:
+            return True
+
+        # Build a temporary graph with the proposed edges
+        tasks = self._list_tasks_unlocked()
+        graph: dict[str, set[str]] = {t.id: set() for t in tasks}
+        graph[task_id] = set()  # Ensure task_id is in graph
+
+        # Add existing edges
+        for task in tasks:
+            for blocked_by_id in task.blocked_by:
+                if blocked_by_id in graph:
+                    graph[blocked_by_id].add(task.id)
+
+        # Add proposed new edges
+        for blocker_id in new_blocked_by:
+            if blocker_id in graph:
+                graph[blocker_id].add(task_id)
+
+        # Detect cycles using DFS from task_id
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
+
+        def has_cycle_from(node: str) -> bool:
+            visited.add(node)
+            rec_stack.add(node)
+
+            for neighbor in graph.get(node, []):
+                if neighbor not in visited:
+                    if has_cycle_from(neighbor):
+                        return True
+                elif neighbor in rec_stack:
+                    return True
+
+            rec_stack.remove(node)
+            return False
+
+        # Check if following edges from any of the new blockers leads back to task_id
+        for blocker_id in new_blocked_by:
+            if blocker_id in graph:
+                # Clear visited for each starting point
+                visited.clear()
+                rec_stack.clear()
+                if has_cycle_from(blocker_id):
+                    return True
+
+        return False
