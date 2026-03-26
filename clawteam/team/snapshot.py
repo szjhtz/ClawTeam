@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from clawteam.fileutil import atomic_write_text
 from clawteam.team.models import get_data_dir
 
 
@@ -167,11 +168,7 @@ class SnapshotManager:
         }
 
         path = _snapshots_root(self.team_name) / f"snap-{snap_id}.json"
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(
-            json.dumps(bundle, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        tmp.replace(path)
+        atomic_write_text(path, json.dumps(bundle, indent=2, ensure_ascii=False))
         return meta
 
     def list_snapshots(self) -> list[SnapshotMeta]:
@@ -282,6 +279,4 @@ class SnapshotManager:
 
 
 def _atomic_write(path: Path, data: dict) -> None:
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_text(path, json.dumps(data, indent=2, ensure_ascii=False))

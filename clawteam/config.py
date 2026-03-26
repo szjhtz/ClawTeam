@@ -8,6 +8,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from clawteam.fileutil import atomic_write_text
+
 
 class AgentProfile(BaseModel):
     """Reusable agent runtime profile for spawn/launch."""
@@ -73,12 +75,8 @@ def load_config() -> ClawTeamConfig:
 
 
 def save_config(cfg: ClawTeamConfig) -> None:
-    """Atomically write config to disk (tmp + rename)."""
-    p = config_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
-    tmp.replace(p)
+    """Atomically write config to disk (mkstemp + replace)."""
+    atomic_write_text(config_path(), cfg.model_dump_json(indent=2))
 
 
 def get_effective(key: str) -> tuple[str, str]:

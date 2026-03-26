@@ -11,6 +11,7 @@ import time
 import uuid
 from pathlib import Path
 
+from clawteam.fileutil import atomic_write_text
 from clawteam.team.models import get_data_dir
 from clawteam.transport.base import Transport
 from clawteam.transport.claimed import ClaimedMessage
@@ -127,10 +128,7 @@ class P2PTransport(Transport):
         if not self._bind_agent or self._port is None:
             return
         peer_file = _peers_dir(self.team_name) / f"{self._bind_agent}.json"
-        info = self._peer_info()
-        tmp = peer_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(info), encoding="utf-8")
-        tmp.replace(peer_file)
+        atomic_write_text(peer_file, json.dumps(self._peer_info()))
 
     def _deregister_peer(self) -> None:
         """Remove peers/{agent}.json."""
