@@ -19,6 +19,7 @@ from clawteam.spawn.adapters import (
     is_kimi_command,
     is_nanobot_command,
     is_opencode_command,
+    is_pi_command,
     is_qwen_command,
 )
 from clawteam.spawn.base import SpawnBackend
@@ -92,7 +93,7 @@ class TmuxBackend(SpawnBackend):
         validation_command = normalized_command
         final_command = list(prepared.final_command)
         post_launch_prompt = prepared.post_launch_prompt
-        if system_prompt and is_claude_command(normalized_command):
+        if system_prompt and (is_claude_command(normalized_command) or is_pi_command(normalized_command)):
             insert_at = final_command.index("-p") if "-p" in final_command else len(final_command)
             final_command[insert_at:insert_at] = ["--append-system-prompt", system_prompt]
 
